@@ -12,3 +12,7 @@ To change your io scheduler permanently edit
 /etc/default/grub add elevator= to GRUB_CMDLINE_LINUX
 and update-grub (grub.cfg)
 
+to run the script execute (at your own risk)
+
+sudo ./sched-bench.sh /dev/sda
+
