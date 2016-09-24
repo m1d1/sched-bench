@@ -1,5 +1,6 @@
 Storage-I/O Scheduler Benchmark. 
-A bash script to measure disk performance under 
+
+A bash script to measure disk performance on linux under 
 different available schedulers such as DEADLINE, CFQ, NOOP, BFQ
 
 The benchmark script uses bonnie++, dd and hdparm to 
