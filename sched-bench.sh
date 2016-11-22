@@ -15,10 +15,12 @@
 # version:	15-01-09	0.1, initial static version
 #           16-09-20    0.2, rewrote the static part
 #           16-09-24    0.3b, public release as beta on github
+#			16-11-22	0.4, fix program locations. Added trap for INT, TERM, EXIT, KILL signals to remove tmp data
+#						0.5, add free space check. 
 
 clear;
-echo -e "Storage-I/O Scheduler Benchmark v0.3b\tMichael Dinkelaker 2016"
-
+echo -e "Storage-I/O Scheduler Benchmark v0.5\tMichael Dinkelaker 2016"
+set -e
 #  are we all set? -----------------------------------------------------------------------------------------------------
 #  got root?
 if [ "$(id -u)" != "0" ]; then
@@ -39,29 +41,34 @@ if [ ! -b $DEV_ID ]; then
     exit 2
 fi
 
+# 0.4 get program locations
+bonnie=$(which bonnie++ 2>/dev/null)
+hdparm=$(which hdparm 2>/dev/null)
+dd=$(which dd 2>/dev/null)
 #  dependencies installed?
-if [ ! -e /usr/bin/bonnie++ ] || [ ! -e /usr/bin/hdparm ] || [ ! -e /bin/dd ]; then
+if [ ! -e $bonnie ] || [ ! -e $hdparm ] || [ ! -e $dd ]; then
     echo "You need to install bonnie++, hdparm and dd (coreutils)"
     exit 3
 fi
-
 #  get dev id mount path, where to read/write data to
 TARGET_PATH=$(mount | tac | grep -m1 $DEV_ID | cut -d" " -f3)
-#  TODO: add freespace check. find mount point with enough diskspace or exit
-#  FREE_SPACE=$(df -h $TARGET_PATH  | grep "$SDX" | cut -d"G" -f3 | sed 's/[^0-9]//g')
-
-
 #  we're good to go! ---------------------------------------------------------------------------------------------------
-
 SDX=$(echo $DEV_ID | cut -f3 -d"/")                                                                                     #  extract sda from /dev/sda
-CURRENT_SCHEDULER=$(cat /sys/block/$SDX/queue/scheduler | cut -d "[" -f2 | cut -d "]" -f1)
-echo -e "current scheduler: $CURRENT_SCHEDULER"
 IFS=' '
 read -a SCHEDULER <<< $(cat /sys/block/$SDX/queue/scheduler | sed 's/[^a-z A-Z 0-9]//g')
 RAM_SIZE=$(cat /proc/meminfo | grep "MemTotal" | cut -f2 -d":" | sed 's/[^0-9]//g')                                     #  bonnie++ needs 2x ram-size
 T_SIZE=$(awk -M 'BEGIN{ROUNDMODE="u"; OFMT="%.0f"; print '$RAM_SIZE' / 1048576}')
 BENCH_SIZE=$(($T_SIZE * 2))
 DD_SIZE=$(($BENCH_SIZE * 1024))
+#  TODO: add freespace check. find mount point with enough diskspace or exit
+FREE_SPACE=$(df -BG $TARGET_PATH | tac | awk {'print $4'} | sed 's/[^0-9]//g' | head -1)
+if [ $BENCH_SIZE -ge $FREE_SPACE ]; then
+	echo "There is not enough disk space left on $TARGET_PATH. Need $BENCH_SIZE G"
+	exit 4
+fi
+echo "writing all temp data into $TARGET_PATH"
+CURRENT_SCHEDULER=$(cat /sys/block/$SDX/queue/scheduler | cut -d "[" -f2 | cut -d "]" -f1)
+echo -e "Your current scheduler was: $CURRENT_SCHEDULER"
 LB="-------------------------------------------------------------------------------------------------------------"
 
 echo
@@ -72,30 +79,29 @@ for test in {1..3};do
     for t in "${SCHEDULER[@]}";do
         WORKDIR=$(mktemp -d -p $TARGET_PATH)                                                                            #  make a temp directory
         echo $t > /sys/block/$SDX/queue/scheduler
-
+		trap "rm -rf $WORKDIR; echo $SCHEDULER > /sys/block/$SDX/queue/scheduler;exit" INT TERM EXIT KILL
         case "$test" in
-
             "1")  # bonnie++
                 echo
                 echo -e "******  bonnie++      $(cat /sys/block/$SDX/queue/scheduler)  ******"
-                bonnie++ -d $WORKDIR/ -s $BENCH_SIZE"G" -n 0 -q -f -b -u root -m TEST
+                $bonnie -d $WORKDIR/ -s $BENCH_SIZE"G" -n 0 -q -f -b -u root -m TEST
             ;;
 
             "2")  # dd
                 echo
                 echo -e "******  dd      $(cat /sys/block/$SDX/queue/scheduler)  ******"
-                dd if=/dev/zero of=$WORKDIR/ddtest bs=1M count=$DD_SIZE
+                $dd if=/dev/zero of=$WORKDIR/ddtest bs=1M count=$DD_SIZE
                 sync
-                dd if=$WORKDIR/ddtest of=/dev/zero bs=1M count=$DD_SIZE
+                $dd if=$WORKDIR/ddtest of=/dev/zero bs=1M count=$DD_SIZE
             ;;
 
             "3")  # hdparm
                 echo
                 echo -e "******  hdparm      $(cat /sys/block/$SDX/queue/scheduler)  ******"
-                hdparm -tT --direct $DEV_ID
+                $hdparm -tT --direct $DEV_ID
             ;;
         esac
-        rm -rf $WORKDIR                                                                                                 # delete temp dir
+		trap - INT TERM EXIT KILL
         sync
     done
 done
