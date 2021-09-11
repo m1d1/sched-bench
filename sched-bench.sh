@@ -1,22 +1,23 @@
 #!/bin/bash
 
 #
-# purpose:  find the fastest disk-scheduler.
-#           this script uses dd, hdparm and bonnie++
-#           to measure the hdd/ssd performance of 
-#           each available io scheduler
+# purpose:  	find the fastest disk-scheduler.
+#           	this script uses dd, hdparm and bonnie++
+#           	to measure the hdd/ssd performance of 
+#           	each available io scheduler
 #
-#           the current io scheduler is restored
-#           after the script completed
+#           	the current io scheduler is restored
+#           	after the script completed
 #
 # author: 	Michael Dinkelaker
-#		    michael.dinkelaker[at]gmail[dot]com
+#		michael.dinkelaker[at]gmail[dot]com
 #
-# version:	15-01-09	0.1, initial static version
-#           16-09-20    0.2, rewrote the static part
-#           16-09-24    0.3b, public release as beta on github
-#			16-11-22	0.4, fix program locations. Added trap for INT, TERM, EXIT, KILL signals to remove tmp data
-#						0.5, add free space check. 
+# version:	15-01-09  0.1, initial static version
+#		16-09-20  0.2, rewrote the static part
+#		16-09-24  0.3b, public release as beta on github
+#		16-11-22  0.4, fix program locations. Added trap for INT, TERM, EXIT, KILL signals to remove tmp data
+#		16-11-22  0.5, add free space check. 
+#		21-09-11  0.6, fix regex for scheduler names with a "-"
 
 clear;
 echo -e "Storage-I/O Scheduler Benchmark v0.5\tMichael Dinkelaker 2016"
@@ -55,7 +56,7 @@ TARGET_PATH=$(mount | tac | grep -m1 $DEV_ID | cut -d" " -f3)
 #  we're good to go! ---------------------------------------------------------------------------------------------------
 SDX=$(echo $DEV_ID | cut -f3 -d"/")                                                                                     #  extract sda from /dev/sda
 IFS=' '
-read -a SCHEDULER <<< $(cat /sys/block/$SDX/queue/scheduler | sed 's/[^a-z A-Z 0-9]//g')
+read -a SCHEDULER <<< $(cat /sys/block/$SDX/queue/scheduler | sed 's/[^a-z A-Z 0-9 -]//g')
 RAM_SIZE=$(cat /proc/meminfo | grep "MemTotal" | cut -f2 -d":" | sed 's/[^0-9]//g')                                     #  bonnie++ needs 2x ram-size
 T_SIZE=$(awk -M 'BEGIN{ROUNDMODE="u"; OFMT="%.0f"; print '$RAM_SIZE' / 1048576}')
 BENCH_SIZE=$(($T_SIZE * 2))
@@ -78,7 +79,7 @@ for test in {1..3};do
 
     for t in "${SCHEDULER[@]}";do
         WORKDIR=$(mktemp -d -p $TARGET_PATH)                                                                            #  make a temp directory
-        echo $t > /sys/block/$SDX/queue/scheduler
+        echo "$t" > /sys/block/$SDX/queue/scheduler
 		trap "rm -rf $WORKDIR; echo $SCHEDULER > /sys/block/$SDX/queue/scheduler;exit" INT TERM EXIT KILL
         case "$test" in
             "1")  # bonnie++
